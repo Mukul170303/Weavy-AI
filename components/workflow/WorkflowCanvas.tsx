@@ -1,41 +1,41 @@
-"use client"
+"use client";
 
-import { useMemo } from "react"
-import ReactFlow, {
+import {
+  ReactFlow,
   Background,
-  Controls,
   MiniMap,
-  applyNodeChanges,
-  applyEdgeChanges,
-  NodeChange,
-  EdgeChange,
-} from "reactflow"
-import "reactflow/dist/style.css"
+  ReactFlowProvider,
+  useReactFlow,
+} from "@xyflow/react";
 
-import { useWorkflowStore } from "@/store/workflow-store"
-import TextNode from "@/components/nodes/TextNode"
+import "@xyflow/react/dist/style.css";
+
+import { useWorkflowStore } from "@/store/workflow-store";
+import TextNode from "@/components/workflow/nodes/TextNode";
 
 export default function WorkflowCanvas() {
-  const { nodes, edges, setNodes, setEdges, onConnect } =
-    useWorkflowStore()
+  return (
+    <ReactFlowProvider>
+      <CanvasContent />
+    </ReactFlowProvider>
+  );
+}
 
-  const onNodesChange = (changes: NodeChange[]) => {
-    setNodes(applyNodeChanges(changes, nodes))
-  }
+function CanvasContent() {
+  const {
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+  } = useWorkflowStore();
 
-  const onEdgesChange = (changes: EdgeChange[]) => {
-    setEdges(applyEdgeChanges(changes, edges))
-  }
-
-  const nodeTypes = useMemo(
-    () => ({
-      textNode: TextNode,
-    }),
-    []
-  )
+  const nodeTypes = {
+    textNode: TextNode,
+  };
 
   return (
-    <div className="h-full w-full bg-neutral-950">
+    <div className="h-full w-full bg-neutral-950 relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -45,10 +45,28 @@ export default function WorkflowCanvas() {
         nodeTypes={nodeTypes}
         fitView
       >
+        <CanvasControls />
         <Background />
-        <Controls />
         <MiniMap />
       </ReactFlow>
     </div>
-  )
+  );
+}
+
+function CanvasControls() {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+
+  return (
+    <div className="absolute bottom-4 left-4 flex gap-2 z-50">
+      <button onClick={() => zoomIn()} className="px-3 py-1 bg-neutral-800 text-white rounded">
+        +
+      </button>
+      <button onClick={() => zoomOut()} className="px-3 py-1 bg-neutral-800 text-white rounded">
+        -
+      </button>
+      <button onClick={() => fitView()} className="px-3 py-1 bg-neutral-800 text-white rounded">
+        Fit
+      </button>
+    </div>
+  );
 }

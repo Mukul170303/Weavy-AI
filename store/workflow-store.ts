@@ -1,139 +1,239 @@
-"use client"
-
-import { create } from "zustand"
+import { create } from "zustand";
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { temporal } from "zundo";
 import {
-  addEdge,
-  applyNodeChanges,
-  applyEdgeChanges,
-  Node,
-  Edge,
-  Connection,
-  NodeChange,
-  EdgeChange,
-} from "reactflow"
+    addEdge,
+    applyNodeChanges,
+    applyEdgeChanges,
+    Connection,
+    Edge,
+    EdgeChange,
+    NodeChange,
+    OnNodesChange,
+    OnEdgesChange,
+    OnConnect,
+} from "@xyflow/react";
+
+import { AppNode } from '@/lib/types';
 
 type WorkflowState = {
-  nodes: Node[]
-  edges: Edge[]
+    userId: string | null;
+    nodes: AppNode[];
+    edges: Edge[];
+    workflowId: string | null;
+    workflowName: string;
 
-  setNodes: (nodes: Node[]) => void
-  setEdges: (edges: Edge[]) => void
-  setWorkflow: (nodes: Node[], edges: Edge[]) => void
 
-  onNodesChange: (changes: NodeChange[]) => void
-  onEdgesChange: (changes: EdgeChange[]) => void
-  onConnect: (connection: Connection) => void
+    // Actions
+    setUserId: (userId: string | null) => void;
+    onNodesChange: OnNodesChange;
+    onEdgesChange: OnEdgesChange;
+    onConnect: OnConnect;
+    updateNodeData: (id: string, data: Partial<AppNode['data']>) => void;
+    resetWorkflow: () => void;
+    addNode: (node: AppNode) => void;
+    deleteNode: (id: string) => void;
+    setWorkflowId: (id: string) => void;
+    setWorkflowName: (name: string) => void;
+    clearUserData: () => void;
+};
 
-  addNode: (node: Node) => void
-  resetWorkflow: () => void
-  runWorkflow: () => void
-}
+// Initial Data - Empty canvas
+const initialNodesData: AppNode[] = [];
+const initialEdges: Edge[] = [];
 
-export const useWorkflowStore = create<WorkflowState>((set, get) => ({
-  nodes: [],
-  edges: [],
+export const useWorkflowStore = create<WorkflowState>()(
+    temporal(
+        persist(
+            (set, get) => ({
+                userId: null,
+                workflowId: null,
+                nodes: initialNodesData,
+                edges: initialEdges,
+                workflowName: "Untitled Workflow",
 
-  setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => set({ edges }),
+                setUserId: (userId: string | null) => {
+                    const currentUserId = get().userId;
 
-  setWorkflow: (nodes, edges) =>
-    set({
-      nodes: JSON.parse(JSON.stringify(nodes)),
-      edges: JSON.parse(JSON.stringify(edges)),
-    }),
+                    // If switching users, clear the workflow data
+                    if (currentUserId !== userId) {
+                        set({
+                            userId,
+                            nodes: initialNodesData,
+                            edges: initialEdges,
+                            workflowId: null,
+                            workflowName: "Untitled Workflow",
+                        });
+                    } else {
+                        set({ userId });
+                    }
+                },
 
-  onNodesChange: (changes) =>
-    set({
-      nodes: applyNodeChanges(changes, get().nodes),
-    }),
+                onNodesChange: (changes: NodeChange[]) => {
+                    set({
+                        nodes: applyNodeChanges(changes, get().nodes) as AppNode[],
+                    });
+                },
 
-  onEdgesChange: (changes) =>
-    set({
-      edges: applyEdgeChanges(changes, get().edges),
-    }),
+                onEdgesChange: (changes: EdgeChange[]) => {
+                    set({
+                        edges: applyEdgeChanges(changes, get().edges),
+                    });
+                },
 
-  onConnect: (connection) =>
-    set({
-      edges: addEdge(connection, get().edges),
-    }),
+                onConnect: (connection: Connection) => {
+                    // Force the new connection to use our custom type
+                    const edge = {
+                        ...connection,
+                        type: 'animatedEdge', // Matches the key we will define in FlowEditor
+                        animated: true,       // Adds the "marching ants" animation automatically
+                        style: { strokeWidth: 3 },
+                    };
 
-  addNode: (node) =>
-    set({
-      nodes: [...get().nodes, node],
-    }),
+                    set({
+                        edges: addEdge(edge, get().edges),
+                    });
+                },
 
-  resetWorkflow: () =>
-    set({
-      nodes: get().nodes.map((node) => ({
-        ...node,
-        data: { ...node.data, status: "idle" },
-      })),
-    }),
+                updateNodeData: (id: string, newData: Partial<AppNode['data']>) => {
+                    set({
+                        nodes: get().nodes.map((node) => {
+                            if (node.id === id) {
+                                return {
+                                    ...node,
+                                    data: { ...node.data, ...newData },
+                                };
+                            }
+                            return node;
+                        }),
+                    });
+                },
 
-  runWorkflow: () => {
-    const { nodes, edges } = get()
+                resetWorkflow: () => {
+                    set({
+                        nodes: initialNodesData,
+                        edges: initialEdges,
+                        workflowId: null,
+                        workflowName: "Untitled Workflow",
+                    });
+                },
 
-    if (nodes.length === 0) return
+                addNode: (node: AppNode) => {
+                    set({
+                        nodes: [...get().nodes, node],
+                    });
+                },
 
-    // Reset all nodes first
-    let updatedNodes = nodes.map((node) => ({
-      ...node,
-      data: { ...node.data, status: "idle" },
-    }))
+                deleteNode: (id: string) => {
+                    set((state) => ({
+                        // 1. Remove the node
+                        nodes: state.nodes.filter((node) => node.id !== id),
+                        // 2. Remove any edges connected to this node
+                        edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id),
+                    }));
+                },
+                setWorkflowId: (id: string) => {
+                    set({ workflowId: id });
+                },
+                setWorkflowName: (name: string) => {
+                    set({ workflowName: name });
+                },
 
-    // Find nodes with no incoming edges
-    const startCandidates = nodes.filter(
-      (node) => !edges.some((edge) => edge.target === node.id)
-    )
+                clearUserData: () => {
+                    set({
+                        userId: null,
+                        nodes: initialNodesData,
+                        edges: initialEdges,
+                        workflowId: null,
+                        workflowName: "Untitled Workflow",
+                    });
+                },
+            }),
+            {
+                name: 'workflow-storage',
+                version: 4, // Incremented to clear old cached nodes
 
-    if (startCandidates.length === 0) return
+                // Partition storage by user ID
+                partialize: (state) => ({
+                    userId: state.userId,
+                    nodes: state.nodes,
+                    edges: state.edges,
+                    workflowId: state.workflowId,
+                    workflowName: state.workflowName,
+                }),
 
-    // Only run the first connected component
-    const startNode = startCandidates[0]
+                migrate: (persistedState: any, version: number) => {
+                    if (version < 4) {
+                        // Clear old data when migrating
+                        return {
+                            userId: null,
+                            nodes: initialNodesData,
+                            edges: initialEdges,
+                            workflowId: null,
+                            workflowName: "Untitled Workflow",
+                        } as WorkflowState;
+                    }
+                    return persistedState as WorkflowState;
+                },
 
-    const visited = new Set<string>()
-    const queue: Node[] = [startNode]
-
-    while (queue.length > 0) {
-      const current = queue.shift()!
-      visited.add(current.id)
-
-      const index = updatedNodes.findIndex((n) => n.id === current.id)
-
-      updatedNodes[index] = {
-        ...updatedNodes[index],
-        data: {
-          ...updatedNodes[index].data,
-          status: "running",
-        },
-      }
-
-      const outgoingEdges = edges.filter(
-        (edge) => edge.source === current.id
-      )
-
-      for (const edge of outgoingEdges) {
-        if (!visited.has(edge.target)) {
-          const nextNode = nodes.find((n) => n.id === edge.target)
-          if (nextNode) queue.push(nextNode)
-        }
-      }
-    }
-
-    set({ nodes: updatedNodes })
-
-    // Simulate completion
-    setTimeout(() => {
-      const finalNodes = get().nodes.map((node) =>
-        visited.has(node.id)
-          ? {
-              ...node,
-              data: { ...node.data, status: "success" },
+                // Use dynamic storage key based on user ID
+                storage: {
+                    getItem: (name: string) => {
+                        const str = localStorage.getItem(name);
+                        if (!str) return null;
+                        const { state } = JSON.parse(str);
+                        return state;
+                    },
+                    setItem: (name: string, value: any) => {
+                        const userId = value.userId;
+                        // Store with user-specific key if user is logged in
+                        const key = userId ? `${name}-${userId}` : name;
+                        localStorage.setItem(
+                            key,
+                            JSON.stringify({
+                                state: value,
+                                version: 4,
+                            })
+                        );
+                    },
+                    removeItem: (name: string) => {
+                        // Remove both generic and user-specific keys
+                        localStorage.removeItem(name);
+                        const keys = Object.keys(localStorage);
+                        keys.forEach(key => {
+                            if (key.startsWith(name)) {
+                                localStorage.removeItem(key);
+                            }
+                        });
+                    },
+                },
             }
-          : node
-      )
+        ),
+        {
+            limit: 100,
+            partialize: (state) => {
+                const { nodes, edges, workflowId } = state;
+                return { nodes, edges, workflowId };
+            },
+            // Equality: THIS is where we exclude position from TRIGGERING a save.
+            // If the only difference between 'past' and 'current' is position/selection, we say "They are Equal" -> No Save.
+            equality: (pastState, currentState) => {
+                // Helper to strip out volatile properties (position, selection, dimensions)
+                const stripVolatile = (state: Partial<WorkflowState>) => {
+                    if (!state.nodes || !state.edges) return {};
+                    return {
+                        edges: state.edges, // Edges rarely change randomly, so we keep them full
+                        nodes: state.nodes.map((node) => {
+                            // Destructure out the fields we want to IGNORE during comparison
+                            const { position, measured, selected, dragging, ...stableData } = node;
+                            return stableData;
+                        }),
+                    };
+                };
 
-      set({ nodes: finalNodes })
-    }, 1500)
-  },
-}))
+                // Compare the "Cleaned" versions
+                return JSON.stringify(stripVolatile(pastState)) === JSON.stringify(stripVolatile(currentState));
+            },
+        }
+    )
+);

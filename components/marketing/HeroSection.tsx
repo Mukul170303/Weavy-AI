@@ -3,7 +3,7 @@ import MobileHeroCards from "@/components/marketing/MobileHeroCards";
 
 export default function HeroSection() {
   return (
-    <section className="relative w-full bg-[#e6eaed] overflow-hidden">
+    <section className="relative w-full bg-[#e6eaed] overflow-hidden !text-black">
 
       {/* SUBTLE GRID BACKGROUND */}
       <div
@@ -26,19 +26,19 @@ export default function HeroSection() {
 
             {/* LEFT TITLE */}
             <div className="shrink-0">
-              <h1 className="text-[clamp(3rem,15vw,8rem)] font-normal leading-[0.9] tracking-tight text-black">
+              <h1 className="text-[clamp(3rem,15vw,8rem)] font-normal leading-[0.9] tracking-tight">
                 Weavy
               </h1>
             </div>
 
             {/* RIGHT CONTENT */}
             <div className="mt-6 md:mt-2">
-              <h2 className="text-[clamp(2.5rem,10vw,5rem)] font-normal leading-none tracking-tight text-black mb-6 text-center md:text-left">
+              <h2 className="text-[clamp(2.5rem,10vw,5rem)] font-normal leading-none tracking-tight mb-6 text-center md:text-left">
                 Artistic
                 <br className="md:hidden" /> Intelligence
               </h2>
 
-              <p className="text-sm md:text-base leading-relaxed max-w-md text-black/70">
+              <p className="text-sm md:text-base leading-relaxed max-w-md">
                 Turn your creative vision into scalable workflows.
                 Access all AI models and professional editing tools
                 in one node based platform.
@@ -50,15 +50,13 @@ export default function HeroSection() {
       </div>
 
       {/* WORKFLOW SECTION */}
-      <div className="relative w-full z-10">
+      <div className="relative w-full z-10 text-black">
 
-        {/* Desktop Workflow */}
-        <div className="hidden md:block">
-          <div className="relative mx-4 md:mx-8 lg:mx-16 rounded-b-[40px] overflow-hidden bg-[#dde3e6] -mb-10">
+        <div className="hidden md:block text-black">
+          <div className="relative mx-4 md:mx-8 lg:mx-16 rounded-b-[40px] overflow-hidden bg-[#dde4e7] -mb-10 text-black">
 
-            {/* Soft radial light overlay */}
             <div
-              className="absolute inset-0 pointer-events-none"
+              className="absolute inset-0 pointer-events-none text-black"
               style={{
                 background:
                   "radial-gradient(ellipse at center, rgba(255,255,255,0.4) 0%, transparent 60%)",
@@ -66,15 +64,14 @@ export default function HeroSection() {
               aria-hidden="true"
             />
 
-            <div className="relative h-[650px] w-full">
+            <div className="relative h-[650px] w-full text-black">
               <HeroWorkflow />
             </div>
 
           </div>
         </div>
 
-        {/* Mobile Workflow */}
-        <div className="md:hidden rounded-b-[40px]">
+        <div className="md:hidden rounded-b-[40px] text-black">
           <MobileHeroCards />
         </div>
 

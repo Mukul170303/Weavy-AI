@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.37.4",
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.22.0",
+    "@trigger.dev/sdk": "4.3.3",
     "@xyflow/react": "^12.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -24,6 +26,7 @@
     "reactflow": "^11.11.4",
     "tailwind-merge": "^3.4.1",
     "uuid": "^13.0.0",
+    "zundo": "^2.3.0",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
