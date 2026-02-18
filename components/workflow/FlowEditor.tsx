@@ -20,7 +20,7 @@ import TextNode from "@/components/workflow/nodes/TextNode";
 import ImageNode from "@/components/workflow/nodes/ImageNode";
 import LLMNode from "@/components/workflow/nodes/LLMNode";
 import {useWorkflowStore} from "@/store/workflow-store";
-import CanvasControls from "./WorkflowCanvas";
+import CanvasControls from "./CanvasControls";
 import {useStore} from "zustand";
 import {AppNode} from "@/lib/types";
 

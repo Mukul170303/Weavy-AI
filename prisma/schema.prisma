@@ -1,3 +1,6 @@
+// =========================================
+// 1. CONFIG
+// =========================================
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,87 +11,95 @@ datasource db {
 }
 
 
+// =========================================
+// 2. USER (Clerk Mirror)
+// =========================================
 model User {
-  id        String     @id @default(cuid())
-  clerkId   String     @unique
-  email     String
-  name      String?
-  imageUrl  String?
-  workflows Workflow[]
-  createdAt DateTime   @default(now())
-}
-
-
-model Workflow {
-  id        String   @id @default(uuid())
-  name      String
-  nodes     Json
-  edges     Json
-
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Store Clerk userId directly
+  id        String   @id
+  email     String   @unique
+  firstName String?
+  lastName  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  workflows Workflow[]
+
+  @@map("users")
+}
+
+
+// =========================================
+// 3. WORKFLOW
+// =========================================
+model Workflow {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(255)
+
+  // Entire React Flow graph stored here
+  data      Json
+
+  // Relation
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   runs      WorkflowRun[]
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([userId])
+  @@map("workflows")
 }
 
 
+// =========================================
+// 4. WORKFLOW RUN (Execution History)
+// =========================================
 model WorkflowRun {
-  id         String   @id @default(cuid())
+  id          String   @id @default(uuid())
 
-  workflowId String
-  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflowId  Int
+  workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
-  status     RunStatus
-  durationMs Int?
-  scope      RunScope
+  triggerType String   @default("MANUAL")
+  status      String
 
-  createdAt  DateTime @default(now())
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
 
-  nodeRuns   NodeRun[]
+  nodeExecutions NodeExecution[]
 
   @@index([workflowId])
+  @@map("workflow_runs")
 }
 
 
+// =========================================
+// 5. NODE EXECUTION
+// =========================================
+model NodeExecution {
+  id          String   @id @default(uuid())
 
-model NodeRun {
-  id            String   @id @default(cuid())
+  runId       String
+  run         WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
-  workflowRunId String
-  workflowRun   WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  nodeId      String
+  nodeType    String
+  nodeLabel   String?
 
-  nodeId        String
-  nodeType      String
+  status      String
 
-  status        RunStatus
-  input         Json?
-  output        Json?
-  error         String?
+  inputData   Json?
+  outputData  Json?
 
-  durationMs    Int?
+  error       String?
 
-  createdAt     DateTime @default(now())
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  duration    Int?
 
-  @@index([workflowRunId])
-}
-
-
-
-enum RunStatus {
-  PENDING
-  RUNNING
-  SUCCESS
-  FAILED
-  PARTIAL
-}
-
-enum RunScope {
-  FULL
-  PARTIAL
-  SINGLE
+  @@index([runId])
+  @@map("node_executions")
 }

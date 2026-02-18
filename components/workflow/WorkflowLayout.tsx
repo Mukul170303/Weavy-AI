@@ -2,9 +2,8 @@
 
 import Sidebar from "./Sidebar";
 import SidebarNavigation from "./SidebarNavigation";
-import WorkflowCanvas from "./WorkflowCanvas";
 
-export default function WorkflowLayout() {
+export default function WorkflowLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-neutral-950 text-white overflow-hidden">
       
@@ -13,18 +12,11 @@ export default function WorkflowLayout() {
         <SidebarNavigation />
       </Sidebar>
 
-      {/* Canvas */}
+      {/* Main Content (EditorPage will render here) */}
       <div className="flex-1 relative">
-        <WorkflowCanvas />
+        {children}
       </div>
 
-      {/* Right Sidebar */}
-      <div className="w-80 bg-zinc-900 border-l border-zinc-800 p-4">
-        <h2 className="text-lg font-semibold mb-4">Workflow History</h2>
-        <p className="text-sm text-zinc-400">
-          No runs yet.
-        </p>
-      </div>
     </div>
   );
 }
