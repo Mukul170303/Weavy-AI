@@ -1,281 +1,207 @@
 import { task } from "@trigger.dev/sdk/v3";
-import { aiGenerator } from "../trigger/workflow-nodes";
-import prisma from "../lib/prisma";
+import { aiGenerator } from "./workflow-nodes";
+import { PrismaClient } from "@prisma/client";
 
-// --------------------
-// Types
-// --------------------
+const prisma = new PrismaClient();
 
+// --- Types ---
 interface NodeData {
-  id: string;
-  type: string;
-  data: any;
+    id: string;
+    type: string;
+    data: any;
 }
 
 interface EdgeData {
-  id: string;
-  source: string;
-  target: string;
-  sourceHandle?: string;
-  targetHandle?: string;
+    id: string;
+    source: string;
+    target: string;
+    sourceHandle?: string;
+    targetHandle?: string;
 }
 
+// Memory to store outputs of previous nodes
 interface ExecutionContext {
-  [nodeId: string]: {
-    text?: string;
-    imageUrls?: string[];
-    videoUrl?: string;
-  };
+    [nodeId: string]: {
+        text?: string;
+        imageUrls?: string[];
+    };
 }
 
-// --------------------
-// Topological Sort
-// --------------------
+// --- Algorithm: Topological Sort ---
+function getTopologicalOrder(nodes: NodeData[], edges: EdgeData[]): NodeData[] {
+    const inDegree = new Map<string, number>();
+    const adj = new Map<string, string[]>();
 
-function getTopologicalOrder(nodes: NodeData[], edges: EdgeData[]) {
-  const inDegree = new Map<string, number>();
-  const adj = new Map<string, string[]>();
+    // Init
+    nodes.forEach((n) => {
+        inDegree.set(n.id, 0);
+        adj.set(n.id, []);
+    });
 
-  nodes.forEach((n) => {
-    inDegree.set(n.id, 0);
-    adj.set(n.id, []);
-  });
+    // Build Graph
+    edges.forEach((edge) => {
+        if (adj.has(edge.source) && adj.has(edge.target)) {
+            adj.get(edge.source)!.push(edge.target);
+            inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
+        }
+    });
 
-  edges.forEach((edge) => {
-    if (adj.has(edge.source) && adj.has(edge.target)) {
-      adj.get(edge.source)!.push(edge.target);
-      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
+    // Find Start Nodes (Degree 0)
+    const queue: string[] = [];
+    inDegree.forEach((degree, id) => {
+        if (degree === 0) queue.push(id);
+    });
+
+    const sorted: NodeData[] = [];
+
+    while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        const node = nodes.find((n) => n.id === currentId);
+        if (node) sorted.push(node);
+
+        const neighbors = adj.get(currentId) || [];
+        for (const neighbor of neighbors) {
+            inDegree.set(neighbor, (inDegree.get(neighbor) || 0) - 1);
+            if (inDegree.get(neighbor) === 0) {
+                queue.push(neighbor);
+            }
+        }
     }
-  });
 
-  const queue: string[] = [];
-  inDegree.forEach((degree, id) => {
-    if (degree === 0) queue.push(id);
-  });
-
-  const sorted: NodeData[] = [];
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()!;
-    const node = nodes.find((n) => n.id === currentId);
-    if (node) sorted.push(node);
-
-    const neighbors = adj.get(currentId) || [];
-    for (const neighbor of neighbors) {
-      inDegree.set(neighbor, (inDegree.get(neighbor) || 0) - 1);
-      if (inDegree.get(neighbor) === 0) {
-        queue.push(neighbor);
-      }
-    }
-  }
-
-  return sorted;
+    return sorted;
 }
-
-// --------------------
-// Orchestrator
-// --------------------
 
 export const orchestrator = task({
-  id: "workflow-orchestrator",
+    id: "workflow-orchestrator",
+    run: async (payload: { runId: string }) => {
+        // 1. Load Workflow
+        const run = await prisma.workflowRun.findUnique({
+            where: { id: payload.runId },
+            include: { workflow: true },
+        });
+        if (!run) throw new Error("Run not found");
 
-  run: async (payload: { runId: string }) => {
-    const run = await prisma.workflowRun.findUnique({
-      where: { id: payload.runId },
-      include: { workflow: true },
-    });
+        const graph = run.workflow.data as any;
+        const nodes: NodeData[] = graph.nodes || [];
+        const edges: EdgeData[] = graph.edges || [];
 
-    if (!run) throw new Error("Run not found");
+        // 2. Sort Execution Order
+        const executionPlan = getTopologicalOrder(nodes, edges);
 
-    // ✅ Safe JSON casting (strict-mode compatible)
-    const nodes = Array.isArray(run.workflow.nodes)
-      ? (run.workflow.nodes as unknown as NodeData[])
-      : [];
+        console.log(`🚀 [Orchestrator] Starting Run: ${run.id}`);
+        console.log(`📋 [Orchestrator] Plan: ${executionPlan.map((n) => n.type).join(" -> ")}`);
 
-    const edges = Array.isArray(run.workflow.edges)
-      ? (run.workflow.edges as unknown as EdgeData[])
-      : [];
+        // 3. Context (Memory)
+        const context: ExecutionContext = {};
 
-    const executionPlan = getTopologicalOrder(nodes, edges);
+        // 4. Execution Loop
+        for (const node of executionPlan) {
+            console.log(`⚡ [Orchestrator] Processing: ${node.type} (${node.id})`);
 
-    const context: ExecutionContext = {};
+            // --- A. PASSIVE NODES (Just Load Data) ---
+            if (node.type === "textNode") {
+                context[node.id] = { text: node.data.text };
+                continue;
+            }
 
-    for (const node of executionPlan) {
-      console.log("Processing:", node.type);
+            if (node.type === "imageNode") {
+                // Handle both File Upload (file.url) and Demo Image (image)
+                const url = node.data.file?.url || node.data.image;
+                if (url) context[node.id] = { imageUrls: [url] };
+                continue;
+            }
 
-      // --------------------
-      // TEXT NODE
-      // --------------------
-      if (node.type === "textNode") {
-        context[node.id] = { text: node.data.text };
-        continue;
-      }
+            // --- B. ACTIVE NODES (Run Tasks) ---
+            if (node.type === "llmNode") {
+                // GATHER INPUTS from Context
+                const incomingEdges = edges.filter((e) => e.target === node.id);
 
-      // --------------------
-      // IMAGE NODE
-      // --------------------
-      if (node.type === "imageNode") {
-        const url = node.data.file?.url || node.data.image;
-        if (url) {
-          context[node.id] = { imageUrls: [url] };
-        }
-        continue;
-      }
+                let aggregatedText = "";
+                let aggregatedImages: string[] = [];
 
-      // --------------------
-      // UPLOAD VIDEO NODE
-      // --------------------
-      if (node.type === "uploadVideo") {
-        const url = node.data.file?.url || node.data.videoUrl;
-        if (url) {
-          context[node.id] = { videoUrl: url };
-        }
-        continue;
-      }
+                for (const edge of incomingEdges) {
+                    const sourceData = context[edge.source];
+                    if (!sourceData) continue;
 
-      // --------------------
-      // CROP IMAGE NODE
-      // --------------------
-      if (node.type === "cropImage") {
-        const incomingEdges = edges.filter((e) => e.target === node.id);
+                    // 1. Text Inputs (from TextNode OR previous LLMNode)
+                    if (sourceData.text) {
+                        // If connecting to "System Prompt" handle
+                        if (edge.targetHandle === "system-prompt") {
+                            aggregatedText = `[System Context]: ${sourceData.text}\n\n` + aggregatedText;
+                        } else {
+                            aggregatedText += `\n[Context from previous step]: ${sourceData.text}`;
+                        }
+                    }
 
-        let imageUrl: string | undefined;
+                    // 2. Image Inputs
+                    if (sourceData.imageUrls) {
+                        aggregatedImages.push(...sourceData.imageUrls);
+                    }
+                }
 
-        for (const edge of incomingEdges) {
-          const sourceData = context[edge.source];
-          if (sourceData?.imageUrls?.length) {
-            imageUrl = sourceData.imageUrls[0];
-          }
-        }
+                // DB Record: Running
+                const executionRecord = await prisma.nodeExecution.create({
+                    data: {
+                        runId: run.id,
+                        nodeId: node.id,
+                        nodeType: node.type,
+                        status: "RUNNING",
+                        startedAt: new Date(),
+                        inputData: { ...node.data, contextInputs: aggregatedText }
+                    }
+                });
 
-        if (!imageUrl) {
-          throw new Error("CropImageNode missing image input");
-        }
+                try {
+                    // Trigger the Worker Task
+                    const userPrompt = node.data.prompt || "Analyze this input.";
 
-        // ⚠️ Replace later with real Trigger.dev crop task
-        context[node.id] = {
-          imageUrls: [imageUrl],
-        };
+                    const result = await aiGenerator.triggerAndWait({
+                        prompt: userPrompt,
+                        systemPrompt: aggregatedText, // Pass previous outputs as system context
+                        imageUrls: aggregatedImages,
+                        model: node.data.model || "gemini-1.5-flash",
+                        temperature: node.data.temperature
+                    });
 
-        continue;
-      }
+                    // Update Context for NEXT nodes
+                    if (result.ok) {
+                        // 👇 FIX IS HERE: Use 'result.output.text', not 'result.data.text'
+                        context[node.id] = { text: result.output.text };
+                    } else {
+                        throw new Error(`Task failed: ${result.error}`);
+                    }
 
-      // --------------------
-      // EXTRACT FRAME NODE
-      // --------------------
-      if (node.type === "extractFrame") {
-        const incomingEdges = edges.filter((e) => e.target === node.id);
+                    // DB Record: Success
+                    await prisma.nodeExecution.update({
+                        where: { id: executionRecord.id },
+                        data: {
+                            status: "SUCCESS",
+                            finishedAt: new Date(),
+                            outputData: result.output as any // Use result.output here too
+                        }
+                    });
 
-        let videoUrl: string | undefined;
-
-        for (const edge of incomingEdges) {
-          const sourceData = context[edge.source];
-          if (sourceData?.videoUrl) {
-            videoUrl = sourceData.videoUrl;
-          }
-        }
-
-        if (!videoUrl) {
-          throw new Error("ExtractFrameNode missing video input");
-        }
-
-        // ⚠️ Replace later with real Trigger.dev frame task
-        context[node.id] = {
-          imageUrls: [videoUrl],
-        };
-
-        continue;
-      }
-
-      // --------------------
-      // LLM NODE
-      // --------------------
-      if (node.type === "llmNode") {
-        const incomingEdges = edges.filter((e) => e.target === node.id);
-
-        let aggregatedText = "";
-        let aggregatedImages: string[] = [];
-
-        for (const edge of incomingEdges) {
-          const sourceData = context[edge.source];
-          if (!sourceData) continue;
-
-          if (sourceData.text) {
-            aggregatedText += `\n${sourceData.text}`;
-          }
-
-          if (sourceData.imageUrls) {
-            aggregatedImages.push(...sourceData.imageUrls);
-          }
+                } catch (error) {
+                    console.error(`❌ Node ${node.id} Failed`);
+                    await prisma.nodeExecution.update({
+                        where: { id: executionRecord.id },
+                        data: {
+                            status: "FAILED",
+                            finishedAt: new Date(),
+                            error: String(error)
+                        }
+                    });
+                    throw error; // Stop the flow
+                }
+            }
         }
 
-        const nodeRun = await prisma.nodeRun.create({
-          data: {
-            workflowRunId: run.id,
-            nodeId: node.id,
-            nodeType: node.type,
-            status: "RUNNING",
-            input: {
-              prompt: node.data.prompt,
-              context: aggregatedText,
-            },
-            createdAt: new Date(),
-          },
+        // 5. Complete Run
+        await prisma.workflowRun.update({
+            where: { id: run.id },
+            data: { status: "COMPLETED", finishedAt: new Date() }
         });
 
-        try {
-          const result = await aiGenerator.triggerAndWait({
-            prompt: node.data.prompt,
-            systemPrompt: aggregatedText,
-            imageUrls: aggregatedImages,
-            model: node.data.model || "gemini-1.5-flash",
-            temperature: node.data.temperature ?? 0.7,
-          });
-
-          if (!result.ok) {
-            throw new Error(result.error ?? "LLM execution failed");
-          }
-
-          context[node.id] = {
-            text: result.output.text,
-          };
-
-          await prisma.nodeRun.update({
-            where: { id: nodeRun.id },
-            data: {
-              status: "SUCCESS",
-              output: result.output,
-              durationMs: 0,
-            },
-          });
-
-        } catch (error: unknown) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-
-          await prisma.nodeRun.update({
-            where: { id: nodeRun.id },
-            data: {
-              status: "FAILED",
-              error: errorMessage,
-            },
-          });
-
-          await prisma.workflowRun.update({
-            where: { id: run.id },
-            data: { status: "FAILED" },
-          });
-
-          throw new Error(String(errorMessage));
-        }
-      }
-    }
-
-    await prisma.workflowRun.update({
-      where: { id: run.id },
-      data: { status: "SUCCESS" },
-    });
-
-    return { success: true };
-  },
+        return { success: true };
+    },
 });
